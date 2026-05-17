@@ -31,6 +31,9 @@ The database layer uses SQLAlchemy 2.0 to enforce strict schema boundaries.
 
 ## 2.2 Relational Models (`models/`)
 
+### ORM Registration Behavior
+SQLAlchemy models are only registered into `Base.metadata` after Python imports the corresponding model modules. To ensure deterministic schema initialization, `app/db/models/__init__.py` acts as the centralized ORM registration layer, ensuring all tables are consistently created during application startup.
+
 ### `ticket.py`
 The `Ticket` model uses SQLAlchemy 2.0 `Mapped` columns for strict type enforcement. 
 It captures both the raw inputs (`subject`, `body`, `sender_email`) and the outputs of the future AI pipeline (`confidence_score`, `decision`, `category`).
@@ -81,6 +84,14 @@ Defines `TicketBase`, `TicketCreate`, and `TicketResponse`.
 # 4. Observability Layer (app/observability/)
 
 The observability layer is prioritized before AI orchestration to guarantee that every system action is traceable from Day 1.
+
+### Multi-Layer Observability Strategy
+LumenFlow intentionally persists traces across three layers simultaneously:
+1. **PostgreSQL Trace Persistence**: For durable, relational querying.
+2. **Structured Terminal Logging**: For real-time, live debugging visibility.
+3. **JSONL Evaluation Traces (`evals/traces.jsonl`)**: For offline replay and benchmarking.
+
+This layered strategy guarantees full observability without introducing heavyweight telemetry infrastructure.
 
 ## 4.1 Schema Contract (`trace_models.py`)
 
