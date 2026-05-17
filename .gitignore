@@ -17,3 +17,8 @@ __pycache__/
 # IDEs
 .vscode/
 .idea/
+
+.env
+
+# Internal Tracking
+project_tracking/
