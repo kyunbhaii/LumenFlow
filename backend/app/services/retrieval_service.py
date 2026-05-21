@@ -1,45 +1,75 @@
-from typing import Dict, Any, List
+from typing import List, Optional
+from sqlalchemy.orm import Session
+
+from app.core.config import settings
+from app.retrieval.retriever import LumenRetriever
+from app.schemas.retrieval import RetrievedDocument
 from app.observability.trace_logger import TraceLogger
+from app.observability.trace_models import TraceCreate
+
+# Initialize retriever lazily to avoid heavy Torch model loads during module imports
+_retriever_instance: Optional[LumenRetriever] = None
+
+def get_retriever() -> LumenRetriever:
+    global _retriever_instance
+    if _retriever_instance is None:
+        _retriever_instance = LumenRetriever(db_url=settings.SQLALCHEMY_DATABASE_URL)
+    return _retriever_instance
+
 
 class RetrievalService:
     @staticmethod
-    def retrieve_context(trace_id: str, query: str) -> Dict[str, Any]:
+    def retrieve_context(
+        trace_id: str,
+        ticket_id: int,
+        query: str,
+        top_k: int = 3,
+        db: Optional[Session] = None
+    ) -> tuple[List[RetrievedDocument], bool]:
         """
-        Mocks retrieval for the MVP. Handles degraded modes.
-        In a real scenario, this connects to pgvector via SentenceTransformers.
+        Formulates a search query, performs similarity retrieval, and logs the telemetry.
+        Gracefully handles database failures as a visible degraded mode.
+        Returns a tuple: (List of RetrievedDocuments, retrieval_success boolean)
         """
         start_time = TraceLogger.start_timer()
-        
+        retrieved_docs: List[RetrievedDocument] = []
+        retrieval_success = True
+        error_msg = None
+        fallback_reason = None
+
         try:
-            # Simulate retrieval logic
-            # For MVP, we will just return a mocked KB article
-            # To simulate a degraded mode, we could randomly fail or check a flag
+            retriever = get_retriever()
+            retrieved_docs = retriever.retrieve(query=query, top_k=top_k)
             
-            # Simulated successful retrieval
-            docs = [
-                {"id": "KB-12", "content": "Refunds are allowed within 30 days of purchase.", "score": 0.85},
-                {"id": "Ticket-55", "content": "User previously requested a refund on 2023-01-01.", "score": 0.72}
-            ]
-            
-            output = {
-                "success": True,
-                "docs": docs,
-                "message": "Retrieval successful"
-            }
-            
+            # Degraded Mode: Check if retrieved documents have very poor similarity scores
+            # If our best match is below 0.35 similarity, we treat it as an ungrounded search
+            if not retrieved_docs or all(doc.similarity_score < 0.35 for doc in retrieved_docs):
+                retrieval_success = False
+                fallback_reason = "low_similarity_score_degradation"
+                
         except Exception as e:
-            # Degraded Mode: Do not fail silently
-            output = {
-                "success": False,
-                "docs": [],
-                "message": "retrieval unavailable"
-            }
-            
-        TraceLogger.log_node_execution(
+            error_msg = str(e)
+            retrieval_success = False
+            fallback_reason = f"Vector DB operational failure: {error_msg}"
+            retrieved_docs = []
+
+        latency_ms = TraceLogger.end_timer(start_time)
+
+        # Pack and write traces
+        event = TraceCreate(
             trace_id=trace_id,
+            ticket_id=ticket_id,
             node_name="retrieval_service",
-            latency_ms=TraceLogger.end_timer(start_time),
-            inputs={"query": query},
-            outputs=output
+            input_payload={"query": query, "top_k": top_k},
+            output_payload=[doc.model_dump() for doc in retrieved_docs],
+            latency_ms=int(latency_ms),
+            prompt_version="vector_search_v1",
+            processing_status="SUCCESS" if retrieval_success else "FAILED",
+            fallback_reason=fallback_reason,
+            error_message=error_msg
         )
-        return output
+        
+        if db:
+            TraceLogger.log_event(db, event)
+
+        return retrieved_docs, retrieval_success

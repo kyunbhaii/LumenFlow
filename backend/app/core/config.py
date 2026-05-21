@@ -1,4 +1,6 @@
-from pydantic_settings import BaseSettings
+import os
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
 
 
 class Settings(BaseSettings):
@@ -16,12 +18,12 @@ class Settings(BaseSettings):
     GROQ_API_KEY: str = ""
 
     # Auth
-    SECRET_KEY: str = "super-secret-key-for-dev"
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "supersecretkey")
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
 
     @property
-    def SQLALCHEMY_DATABASE_URI(self) -> str:
+    def SQLALCHEMY_DATABASE_URL(self) -> str:
         return (
             f"postgresql://{self.POSTGRES_USER}:"
             f"{self.POSTGRES_PASSWORD}@"
@@ -30,9 +32,14 @@ class Settings(BaseSettings):
             f"{self.POSTGRES_DB}"
         )
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="ignore",
+        case_sensitive=True
+    )
+    
+    # Model Configuration
+    EMBEDDING_MODEL_NAME: str = "all-MiniLM-L6-v2"
 
 
 settings = Settings()

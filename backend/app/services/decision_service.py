@@ -1,40 +1,63 @@
-from typing import Dict, Any
-from app.observability.trace_logger import TraceLogger
+from typing import Optional
+from sqlalchemy.orm import Session
+
 from app.llm.structured_output import ClassificationOutput
+from app.observability.trace_logger import TraceLogger
+from app.observability.trace_models import TraceCreate
+
 
 class DecisionService:
     @staticmethod
-    def route_ticket(trace_id: str, classification: ClassificationOutput, retrieval_success: bool) -> str:
+    def route_ticket(
+        trace_id: str,
+        ticket_id: int,
+        classification: ClassificationOutput,
+        retrieval_success: bool,
+        db: Optional[Session] = None
+    ) -> str:
         """
-        Threshold-based routing logic. Returns 'autodraft', 'escalate', or 'close'.
+        Deterministic Python business boundary router enforcing strict SLA & fallback rules.
+        Decides whether to route the ticket to 'autodraft' or 'escalate' (manual support).
         """
         start_time = TraceLogger.start_timer()
-        
         decision = "autodraft"
-        reason = "Confidence and retrieval are sufficient."
-        
-        # Threshold 1: Classification Confidence
+        reason = "Classification confidence and vector search results satisfy draft criteria."
+        fallback_triggered = False
+        fallback_reason = None
+
+        # Threshold Rule 1: Confidence Boundary
         if classification.confidence < 0.65:
             decision = "escalate"
-            reason = f"Classification confidence too low ({classification.confidence} < 0.65)"
-            
-        # Threshold 2: Retrieval Degradation
+            reason = f"Classification confidence score is too low ({classification.confidence} < 0.65)."
+            fallback_triggered = True
+            fallback_reason = "low_classification_confidence"
+
+        # Threshold Rule 2: Ingestion/Vector Search Degradation Safeguard
         elif not retrieval_success:
             decision = "escalate"
-            reason = "Retrieval failed or degraded mode triggered, cannot safely autodraft."
-            
-        # Optional Threshold 3: Urgent priority
-        # (Could add logic here based on sentiment or specific categories)
-        
-        TraceLogger.log_node_execution(
+            reason = "Retrieval pipeline failed, timed out, or returned degraded scores."
+            fallback_triggered = True
+            fallback_reason = "degraded_vector_search"
+
+        latency_ms = TraceLogger.end_timer(start_time)
+
+        # Log routing decisions in tracing layer
+        event = TraceCreate(
             trace_id=trace_id,
+            ticket_id=ticket_id,
             node_name="decision_service",
-            latency_ms=TraceLogger.end_timer(start_time),
-            inputs={
+            input_payload={
                 "confidence": classification.confidence,
                 "retrieval_success": retrieval_success
             },
-            outputs={"decision": decision, "reason": reason}
+            output_payload={"decision": decision, "reason": reason},
+            latency_ms=int(latency_ms),
+            prompt_version="deterministic_v1",
+            processing_status="SUCCESS",
+            fallback_reason=fallback_reason if fallback_triggered else None,
+            error_message=None
         )
-        
+        if db:
+            TraceLogger.log_event(db, event)
+
         return decision

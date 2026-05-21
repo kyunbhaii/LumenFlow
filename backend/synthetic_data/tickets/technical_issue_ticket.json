@@ -1,0 +1,5 @@
+{
+  "subject": "OAuth login failure",
+  "body": "Users are receiving a 500 internal server error when trying to login using Google OAuth.",
+  "sender_email": "techuser@example.com"
+}
