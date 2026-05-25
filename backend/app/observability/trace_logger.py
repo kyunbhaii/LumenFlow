@@ -4,12 +4,11 @@ import os
 import time
 
 from datetime import datetime
-from typing import Optional, Any
 
 from sqlalchemy.orm import Session
 
 from app.db.models.trace import Trace
-from app.observability.trace_models import TraceCreate
+from app.schemas.trace import TraceCreate
 
 
 TRACE_FILE = "evals/traces.jsonl"
@@ -55,8 +54,7 @@ class TraceLogger:
         )
 
         db.add(trace)
-        db.commit()
-        db.refresh(trace)
+        db.flush()
 
         # Structured terminal logs
 
@@ -88,7 +86,13 @@ class TraceLogger:
             "output_payload": event.output_payload
         }
 
-        with open(TRACE_FILE, "a") as f:
-            f.write(json.dumps(trace_record) + "\n\n")
+        try:
+            with open(TRACE_FILE, "a") as f:
+                f.write(json.dumps(trace_record) + "\n")
+        except Exception as e:
+            logger.error(
+                f"[TRACE:{event.trace_id}] "
+                f"failed to write JSONL trace: {e}"
+            )
         
         return trace

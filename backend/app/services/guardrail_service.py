@@ -1,11 +1,12 @@
 import re
 from typing import Optional
 from sqlalchemy.orm import Session
+from app.core.config import settings
 
 from app.llm.reasoning_model import LLMClient
-from app.llm.structured_output import GuardrailOutput
+from app.schemas.guardrail import GuardrailResult
 from app.observability.trace_logger import TraceLogger
-from app.observability.trace_models import TraceCreate
+from app.schemas.trace import TraceCreate
 from app.prompts.templates import build_safety_prompt
 
 # Production-grade Security Rules categorized by vulnerability risk
@@ -43,7 +44,7 @@ class GuardrailService:
         ticket_id: int,
         text: str,
         db: Optional[Session] = None
-    ) -> bool:
+    ) -> GuardrailResult:
         """
         Runs advanced regex category checking followed by a lightweight LLM-based safety scan.
         Saves execution metrics via TraceLogger if db is provided.
@@ -62,6 +63,11 @@ class GuardrailService:
                     is_safe = False
                     reason = f"regex_safety_violation_{category}"
                     latency_ms = TraceLogger.end_timer(start_time)
+                    fallback_reason = (
+                        f"Regex guardrail triggered | "
+                        f"category={category} | "
+                        f"pattern={pattern}"
+                    )
                     
                     event = TraceCreate(
                         trace_id=trace_id,
@@ -77,7 +83,7 @@ class GuardrailService:
                     )
                     if db:
                         TraceLogger.log_event(db, event)
-                    return is_safe
+                    return GuardrailResult(is_safe=is_safe, reason=reason)
 
         # 2. Lightweight LLM Security Check
         prompt_version = GuardrailService.PROMPT_VERSION
@@ -90,14 +96,15 @@ class GuardrailService:
             system_prompt = formatted_messages[0].content
             user_prompt = formatted_messages[1].content
 
-            output: GuardrailOutput = LLMClient.get_completion(
+            output: GuardrailResult = LLMClient.get_completion(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
-                model="llama3-8b-8192",
-                response_model=GuardrailOutput
+                model=settings.REASONING_MODEL,
+                response_model=GuardrailResult
             )
             is_safe = output.is_safe
             reason = output.reason
+            
         except Exception as e:
             error_msg = str(e)
             # Default to safe on exception but mark fallback triggered
@@ -120,4 +127,8 @@ class GuardrailService:
         )
         if db:
             TraceLogger.log_event(db, event)
-        return is_safe
+
+        return GuardrailResult(
+            is_safe=is_safe,
+            reason=reason
+        )

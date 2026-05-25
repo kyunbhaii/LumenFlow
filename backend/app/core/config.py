@@ -40,6 +40,6 @@ class Settings(BaseSettings):
     
     # Model Configuration
     EMBEDDING_MODEL_NAME: str = "all-MiniLM-L6-v2"
-
+    REASONING_MODEL: str = "openai/gpt-oss-20b"
 
 settings = Settings()

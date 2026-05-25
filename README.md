@@ -145,7 +145,41 @@ cd lumenflow
 ### Start services
 
 ```bash
-docker compose up --build
+docker compose up -d
+```
+
+### Fresh local setup
+
+Use this when starting from a fresh local database:
+
+```bash
+docker compose down -v
+docker compose up -d
+source venv/bin/activate
+cd backend
+alembic upgrade head
+uvicorn app.main:app --reload
+```
+
+### Normal local run
+
+Use this when the database already exists and no new migration has been added:
+
+```bash
+source venv/bin/activate
+cd backend
+uvicorn app.main:app --reload
+```
+
+### Local run after schema changes
+
+Use this when a new Alembic migration has been added:
+
+```bash
+source venv/bin/activate
+cd backend
+alembic upgrade head
+uvicorn app.main:app --reload
 ```
 
 ---
