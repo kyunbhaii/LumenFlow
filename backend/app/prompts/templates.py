@@ -1,5 +1,4 @@
-from typing import List
-from langchain_core.documents import Document
+from typing import List, Any
 from langchain_core.prompts import ChatPromptTemplate
 
 # 1. CLASSIFICATION TEMPLATE
@@ -99,18 +98,25 @@ CRITICAL RULES:
 5. Do not output anything outside JSON.
 """.strip()
 
-def format_context_for_prompt(docs: List[Document]) -> str:
+def format_context_for_prompt(docs: List[Any]) -> str:
     """
-    Converts retrieved Document objects into structured context blocks.
+    Converts retrieved Document or RetrievedDocument objects into structured context blocks.
     """
     formatted_blocks = []
     for doc in docs:
-        source_id = doc.metadata.get("source_id", "unknown")
-        content = doc.page_content.strip()
+        if hasattr(doc, "metadata") and isinstance(doc.metadata, dict):
+            source_id = doc.metadata.get("source_id", "unknown")
+            content = doc.page_content.strip()
+        elif hasattr(doc, "source_id") and hasattr(doc, "content"):
+            source_id = doc.source_id
+            content = doc.content.strip()
+        else:
+            source_id = "unknown"
+            content = str(doc).strip()
         formatted_blocks.append(f"[Source: {source_id}]\n{content}")
     return "\n\n".join(formatted_blocks)
 
-def build_draft_promtp() -> ChatPromptTemplate:
+def build_draft_prompt() -> ChatPromptTemplate:
     """
     Returns a ChatPromptTemplate for response drafting.
     Variables expected:

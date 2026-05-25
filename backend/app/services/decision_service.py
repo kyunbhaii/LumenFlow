@@ -1,9 +1,10 @@
 from typing import Optional
 from sqlalchemy.orm import Session
 
-from app.llm.structured_output import ClassificationOutput
+from app.schemas.classification import ClassificationResult
+from app.schemas.decision import DecisionResult
 from app.observability.trace_logger import TraceLogger
-from app.observability.trace_models import TraceCreate
+from app.schemas.trace import TraceCreate
 
 
 class DecisionService:
@@ -11,10 +12,10 @@ class DecisionService:
     def route_ticket(
         trace_id: str,
         ticket_id: int,
-        classification: ClassificationOutput,
+        classification: ClassificationResult,
         retrieval_success: bool,
         db: Optional[Session] = None
-    ) -> str:
+    ) -> DecisionResult:
         """
         Deterministic Python business boundary router enforcing strict SLA & fallback rules.
         Decides whether to route the ticket to 'autodraft' or 'escalate' (manual support).
@@ -60,4 +61,9 @@ class DecisionService:
         if db:
             TraceLogger.log_event(db, event)
 
-        return decision
+        return DecisionResult(
+            decision=decision,
+            reason=reason,
+            fallback_triggered=fallback_triggered,
+            fallback_reason=fallback_reason
+        )

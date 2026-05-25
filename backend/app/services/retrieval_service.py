@@ -3,9 +3,9 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.retrieval.retriever import LumenRetriever
-from app.schemas.retrieval import RetrievedDocument
+from app.schemas.retrieval import RetrievedDocument, RetrievalResult
 from app.observability.trace_logger import TraceLogger
-from app.observability.trace_models import TraceCreate
+from app.schemas.trace import TraceCreate
 
 # Initialize retriever lazily to avoid heavy Torch model loads during module imports
 _retriever_instance: Optional[LumenRetriever] = None
@@ -25,11 +25,11 @@ class RetrievalService:
         query: str,
         top_k: int = 3,
         db: Optional[Session] = None
-    ) -> tuple[List[RetrievedDocument], bool]:
+    ) -> RetrievalResult:
         """
         Formulates a search query, performs similarity retrieval, and logs the telemetry.
         Gracefully handles database failures as a visible degraded mode.
-        Returns a tuple: (List of RetrievedDocuments, retrieval_success boolean)
+        Returns a structured RetrievalResult object.
         """
         start_time = TraceLogger.start_timer()
         retrieved_docs: List[RetrievedDocument] = []
@@ -72,4 +72,8 @@ class RetrievalService:
         if db:
             TraceLogger.log_event(db, event)
 
-        return retrieved_docs, retrieval_success
+        return RetrievalResult(
+            retrieved_docs=retrieved_docs,
+            retrieval_success=retrieval_success,
+            fallback_reason=fallback_reason
+        )
